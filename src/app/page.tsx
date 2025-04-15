@@ -15,6 +15,7 @@ export default function Home() {
   const [brushSize, setBrushSize] = useState<number>(10);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+  const [maskedImage, setMaskedImage] = useState<string | null>(null);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
