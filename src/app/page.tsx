@@ -62,6 +62,7 @@ export default function Home() {
       const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions());
       if (!detection) {
         alert('No face detected');
+        setMaskedImage(null); // Clear the masked image if no face is detected
         return;
       }
 
@@ -69,14 +70,26 @@ export default function Home() {
       const landmarks = await faceapi.detectFaceLandmarks(canvas, new faceapi.TinyFaceDetectorOptions());
       if (!landmarks) {
         alert('No face landmarks detected');
+        setMaskedImage(null); // Clear the masked image if no landmarks are detected
         return;
       }
 
-      const box = detection.box;
+      // Get face landmarks positions
+      const points = landmarks.landmarks.positions;
 
-      // Draw a gray rectangle over the detected face
+      // Draw a gray polygon over the detected face
       ctx.fillStyle = skinToneGrey;
-      ctx.fillRect(box.x, box.y, box.width, box.height);
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y); // Move to the first point
+
+      // Iterate through the landmark points and draw lines
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+
+      ctx.closePath(); // Close the polygon
+      ctx.fill();
+
       setMaskedImage(canvas.toDataURL('image/png'));
     };
   };
