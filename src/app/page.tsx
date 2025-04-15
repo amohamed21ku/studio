@@ -37,28 +37,39 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
 
   const lm = detection.landmarks
 
-  // 🎯 Sample skin tone from cheek (point 3 = left cheek, point 13 = right cheek)
+  // Sample skin tone grey from cheeks
   const cheekPoints = [lm.positions[3], lm.positions[13]]
   let total = 0
   for (const p of cheekPoints) {
     const x = Math.round(p.x)
     const y = Math.round(p.y)
     const idx = (y * canvas.width + x) * 4
-    total += data[idx] // grayscale value
+    total += data[idx]
   }
-  const skinToneGrey = Math.round(total / cheekPoints.length)
-  const skinGreyRGB = `rgb(${skinToneGrey},${skinToneGrey},${skinToneGrey})`
+  const baseTone = Math.round(total / cheekPoints.length)
 
+  // Create a textured brush using small random noise for scratch effect
   const fillRegion = (points: faceapi.Point[]) => {
+    ctx.save()
     ctx.beginPath()
     ctx.moveTo(points[0].x, points[0].y)
     points.forEach(p => ctx.lineTo(p.x, p.y))
     ctx.closePath()
-    ctx.fillStyle = skinGreyRGB
-    ctx.fill()
+    ctx.clip()
+
+    // Scratchy fill inside face
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const scratch = baseTone + Math.floor(Math.random() * 12 - 6)
+        ctx.fillStyle = `rgb(${scratch},${scratch},${scratch})`
+        if (x % 3 === 0 && y % 3 === 0) ctx.fillRect(x, y, 1, 1)
+      }
+    }
+
+    ctx.restore()
   }
 
-  // Mask full face area using jaw + raised brows
+  // Get full face region: brows lifted + jaw
   const jaw = lm.getJawOutline()
   const leftBrow = lm.getLeftEyeBrow().map(p => ({ x: p.x, y: p.y - 60 }))
   const rightBrow = lm.getRightEyeBrow().map(p => ({ x: p.x, y: p.y - 60 }))
