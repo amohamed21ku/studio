@@ -79,6 +79,11 @@ export default function Home() {
   const [maskedImage, setMaskedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  const [drawing, setDrawing] = useState(false);
+
+    const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
+    const [overlayImage, setOverlayImage] = useState<string | null>(null);
+
   useEffect(() => {
     const load = async () => {
       setIsLoading(true);
@@ -110,6 +115,14 @@ export default function Home() {
         try {
           const canvas = await applyGreyFaceMask(image);
           setMaskedImage(canvas.toDataURL('image/png'));
+           // Initialize overlay canvas here
+           if (overlayCanvasRef.current) {
+            const overlayCtx = overlayCanvasRef.current.getContext('2d');
+            if (overlayCtx) {
+                overlayCanvasRef.current.width = canvas.width;
+                overlayCanvasRef.current.height = canvas.height;
+            }
+        }
         } catch (error: any) {
           console.error("Face detection or masking failed:", error);
           alert(`Face detection or masking failed: ${error.message}`);
@@ -140,6 +153,45 @@ export default function Home() {
     a.click();
     document.body.removeChild(a);
   };
+   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setDrawing(true);
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = skinToneGrey; // Use skin tone grey for the brush
+
+    const x = e.nativeEvent.offsetX;
+    const y = e.nativeEvent.offsetY;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!drawing) return;
+    const canvas = overlayCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const x = e.nativeEvent.offsetX;
+    const y = e.nativeEvent.offsetY;
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    setOverlayImage(canvas.toDataURL('image/png'));
+  };
+
+  const handleMouseUp = () => {
+    setDrawing(false);
+  };
+
+  const handleMouseLeave = () => {
+    setDrawing(false);
+  };
+
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-background text-foreground">
@@ -157,12 +209,29 @@ export default function Home() {
             onChange={handleImageUpload}
             className="w-full text-sm"
           />
-           <div className="w-full flex items-center justify-center">
+           <div className="w-full flex items-center justify-center relative">
             {image ? (
               isLoading ? (
                 <div>Processing...</div>
               ) : maskedImage ? (
+                 <div style={{ position: 'relative' }}>
                  <img src={maskedImage} alt="Monochrome Masked Face" className="border border-border rounded-md shadow-sm" />
+                    <canvas
+                      ref={overlayCanvasRef}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        height: '100%',
+                        cursor: 'pointer',
+                      }}
+                      onMouseDown={handleMouseDown}
+                      onMouseMove={handleMouseMove}
+                      onMouseUp={handleMouseUp}
+                      onMouseLeave={handleMouseLeave}
+                    />
+                   </div>
               ) : (
                 <div>Face detection failed.</div>
               )
@@ -175,6 +244,19 @@ export default function Home() {
             <Button onClick={handleDownload} disabled={!maskedImage} className="bg-teal-500 text-teal-50 text-teal-50 hover:bg-teal-700">
               Download Image
             </Button>
+             <div className="flex items-center space-x-2">
+              <label htmlFor="brushSize" className="text-sm font-medium">Brush Size:</label>
+              <Slider
+                id="brushSize"
+                min={1}
+                max={50}
+                step={1}
+                defaultValue={[brushSize]}
+                onValueChange={(value) => setBrushSize(value[0])}
+                className="w-24"
+              />
+              <span className="text-sm">{brushSize}</span>
+            </div>
           </div>
         </CardContent>
       </Card>
