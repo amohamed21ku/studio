@@ -14,7 +14,6 @@ export async function loadModels() {
 }
 
 export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCanvasElement> {
-  'use client';
   const canvas = document.createElement('canvas')
   canvas.width = image.width
   canvas.height = image.height
@@ -63,13 +62,12 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
   ctx.closePath()
   ctx.clip()
 
-  for (let y = 0; y < canvas.height; y++) {
-    for (let x = 0; x < canvas.width; x++) {
-      const scratch = baseTone + Math.floor(Math.random() * 14 - 7)  // scratch effect
-      ctx.fillStyle = `rgb(${scratch},${scratch},${scratch})`
-      if ((x + y) % 3 === 0) ctx.fillRect(x, y, 1, 1)
-    }
-  }
+  // Create a color based on the skin tone with some random variation for a scratchy effect
+  const scratch = baseTone + Math.floor(Math.random() * 14 - 7);
+  ctx.fillStyle = `rgb(${scratch}, ${scratch}, ${scratch})`;
+
+  // Fill the entire clipped region
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.restore()
   return canvas
