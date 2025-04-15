@@ -20,7 +20,7 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
   const ctx = canvas.getContext('2d')!
   ctx.drawImage(image, 0, 0)
 
-  // Convert image to grayscale
+  // Convert entire image to black and white
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const data = imageData.data
   for (let i = 0; i < data.length; i += 4) {
@@ -36,24 +36,28 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
   if (!detection) throw new Error('No face detected')
 
   const lm = detection.landmarks
-  const grey = 'rgb(150,150,150)'
+  const lightGrey = 'rgb(190,190,190)'
 
-  // Helper to draw a filled region
   const fillRegion = (points: faceapi.Point[]) => {
     ctx.beginPath()
     ctx.moveTo(points[0].x, points[0].y)
     points.forEach(p => ctx.lineTo(p.x, p.y))
     ctx.closePath()
-    ctx.fillStyle = grey
+    ctx.fillStyle = lightGrey
     ctx.fill()
   }
 
-  // Combine jaw, cheeks and brow to approximate full face mask
+  // Face outline using jaw + upper eyebrows lifted
   const jaw = lm.getJawOutline()
-  const leftBrow = lm.getLeftEyeBrow().map(p => ({ x: p.x, y: p.y - 40 }))
-  const rightBrow = lm.getRightEyeBrow().map(p => ({ x: p.x, y: p.y - 40 }))
+  const leftBrow = lm.getLeftEyeBrow().map(p => ({ x: p.x, y: p.y - 60 }))
+  const rightBrow = lm.getRightEyeBrow().map(p => ({ x: p.x, y: p.y - 60 }))
 
-  const fullFacePoints = [...leftBrow, ...rightBrow.reverse(), ...jaw.reverse()]
+  // Full forehead + face region
+  const fullFacePoints = [
+    ...leftBrow,
+    ...rightBrow.reverse(),
+    ...jaw.reverse()
+  ]
   fillRegion(fullFacePoints)
 
   return canvas
