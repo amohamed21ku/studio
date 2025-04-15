@@ -14,6 +14,7 @@ export async function loadModels() {
 }
 
 export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCanvasElement> {
+  'use client';
   const canvas = document.createElement('canvas')
   canvas.width = image.width
   canvas.height = image.height
@@ -37,7 +38,7 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
 
   const lm = detection.landmarks
 
-  // Sample skin tone grey from cheeks
+  // Sample average grayscale tone from the cheeks
   const cheekPoints = [lm.positions[3], lm.positions[13]]
   let total = 0
   for (const p of cheekPoints) {
@@ -48,34 +49,29 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
   }
   const baseTone = Math.round(total / cheekPoints.length)
 
-  // Create a textured brush using small random noise for scratch effect
-  const fillRegion = (points: faceapi.Point[]) => {
-    ctx.save()
-    ctx.beginPath()
-    ctx.moveTo(points[0].x, points[0].y)
-    points.forEach(p => ctx.lineTo(p.x, p.y))
-    ctx.closePath()
-    ctx.clip()
-
-    // Scratchy fill inside face
-    for (let y = 0; y < canvas.height; y++) {
-      for (let x = 0; x < canvas.width; x++) {
-        const scratch = baseTone + Math.floor(Math.random() * 12 - 6)
-        ctx.fillStyle = `rgb(${scratch},${scratch},${scratch})`
-        if (x % 3 === 0 && y % 3 === 0) ctx.fillRect(x, y, 1, 1)
-      }
-    }
-
-    ctx.restore()
-  }
-
-  // Get full face region: brows lifted + jaw
+  // Define full face region using jaw and lifted brows
   const jaw = lm.getJawOutline()
   const leftBrow = lm.getLeftEyeBrow().map(p => ({ x: p.x, y: p.y - 60 }))
   const rightBrow = lm.getRightEyeBrow().map(p => ({ x: p.x, y: p.y - 60 }))
-  const fullFacePoints = [...leftBrow, ...rightBrow.reverse(), ...jaw.reverse()]
-  fillRegion(fullFacePoints)
+  const faceRegion = [...leftBrow, ...rightBrow.reverse(), ...jaw.reverse()]
 
+  // Fill the face region with scratchy grey (completely masking facial features)
+  ctx.save()
+  ctx.beginPath()
+  ctx.moveTo(faceRegion[0].x, faceRegion[0].y)
+  faceRegion.forEach(p => ctx.lineTo(p.x, p.y))
+  ctx.closePath()
+  ctx.clip()
+
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const scratch = baseTone + Math.floor(Math.random() * 14 - 7)  // scratch effect
+      ctx.fillStyle = `rgb(${scratch},${scratch},${scratch})`
+      if ((x + y) % 3 === 0) ctx.fillRect(x, y, 1, 1)
+    }
+  }
+
+  ctx.restore()
   return canvas
 }
 
@@ -227,21 +223,7 @@ export default function Home() {
               ) : maskedImage ? (
                  <div style={{ position: 'relative' }}>
                  <img src={maskedImage} alt="Monochrome Masked Face" className="border border-border rounded-md shadow-sm" />
-                    <canvas
-                      ref={overlayCanvasRef}
-                      style={{
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        width: '100%',
-                        height: '100%',
-                        cursor: 'pointer',
-                      }}
-                      onMouseDown={handleMouseDown}
-                      onMouseMove={handleMouseMove}
-                      onMouseUp={handleMouseUp}
-                      onMouseLeave={handleMouseLeave}
-                    />
+                    
                    </div>
               ) : (
                 <div>Face detection failed.</div>
