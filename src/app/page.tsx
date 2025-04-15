@@ -7,6 +7,61 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Slider } from "@/components/ui/slider";
 import * as faceapi from 'face-api.js';
 
+export async function loadModels() {
+  const MODEL_URL = '/models'
+  await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL)
+  await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL)
+}
+
+export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCanvasElement> {
+  const canvas = document.createElement('canvas')
+  canvas.width = image.width
+  canvas.height = image.height
+  const ctx = canvas.getContext('2d')!
+  ctx.drawImage(image, 0, 0)
+
+  const detection = await faceapi
+    .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions())
+    .withFaceLandmarks()
+
+  if (!detection) throw new Error('No face detected')
+
+  const lm = detection.landmarks
+  const grey = 'rgb(160,160,160)'
+
+  // Helper to draw a region
+  const fillRegion = (points: faceapi.Point[]) => {
+    ctx.beginPath()
+    ctx.moveTo(points[0].x, points[0].y)
+    points.forEach(p => ctx.lineTo(p.x, p.y))
+    ctx.closePath()
+    ctx.fillStyle = grey
+    ctx.fill()
+  }
+
+  // Cover left and right eyes
+  fillRegion(lm.getLeftEye())
+  fillRegion(lm.getRightEye())
+
+  // Cover nose
+  fillRegion(lm.getNose())
+
+  // Cover mouth
+  fillRegion(lm.getMouth())
+
+  // Cover forehead (approximate from eyebrows + offset)
+  const leftBrow = lm.getLeftEyeBrow()
+  const rightBrow = lm.getRightEyeBrow()
+
+  const foreheadPoints: faceapi.Point[] = [
+    ...leftBrow.map(p => ({ x: p.x, y: p.y - 40 })),
+    ...rightBrow.reverse().map(p => ({ x: p.x, y: p.y - 40 }))
+  ]
+  fillRegion(foreheadPoints)
+
+  return canvas
+}
+
 const skinToneGrey = "#D3D3D3";
 
 export default function Home() {
@@ -16,6 +71,22 @@ export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const [maskedImage, setMaskedImage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        await loadModels();
+      } catch (error) {
+        console.error("Failed to load face-api models:", error);
+        alert('Failed to load face detection models. Please check the console for details.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -26,78 +97,28 @@ export default function Home() {
       const imgDataUrl = reader.result as string;
       setImage(imgDataUrl);
 
-      // Load face-api models
-      try {
-        await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
-      } catch (error) {
-        console.error("Failed to load face-api models:", error);
-        alert('Failed to load face detection models. Please check the console for details.');
-        return;
-      }
-
-      // Detect face and apply mask
-      await detectAndMaskFace(imgDataUrl);
+      const image = new Image();
+      image.src = imgDataUrl;
+      image.onload = async () => {
+          setIsLoading(true);
+        try {
+          const canvas = await applyGreyFaceMask(image);
+          setMaskedImage(canvas.toDataURL('image/png'));
+        } catch (error: any) {
+          console.error("Face detection or masking failed:", error);
+          alert(`Face detection or masking failed: ${error.message}`);
+          setMaskedImage(null);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      image.onerror = () => {
+        console.error("Failed to load image");
+        alert('Failed to load image.');
+        setIsLoading(false);
+      };
     };
     reader.readAsDataURL(file);
-  };
-
-  const detectAndMaskFace = async (imgDataUrl: string) => {
-    const image = new Image();
-    image.src = imgDataUrl;
-
-    image.onload = async () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = image.width;
-      canvas.height = image.height;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(image, 0, 0);
-
-      // Convert the image to black and white
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-
-      for (let i = 0; i < data.length; i += 4) {
-        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-        data[i] = avg;
-        data[i + 1] = avg;
-        data[i + 2] = avg;
-      }
-
-      ctx.putImageData(imageData, 0, 0);
-
-      try {
-        const detection = await faceapi
-          .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions())
-          .withFaceLandmarks();
-
-        if (!detection) throw new Error("No face detected");
-
-        // ✅ Get all landmark points
-        const points = detection.landmarks.positions;
-
-        // ✅ Draw gray mask over full face (rough polygon)
-        ctx.beginPath();
-        ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) {
-          ctx.lineTo(points[i].x, points[i].y);
-        }
-        ctx.closePath();
-        ctx.fillStyle = "rgb(160,160,160)";
-        ctx.fill();
-
-        setMaskedImage(canvas.toDataURL('image/png'));
-      } catch (error: any) {
-        console.error("Face detection or masking failed:", error);
-        alert(`Face detection or masking failed: ${error.message}`);
-        setMaskedImage(null);
-      }
-    };
-
-    image.onerror = () => {
-      console.error("Failed to load image");
-      alert('Failed to load image.');
-    };
   };
 
   const handleDownload = () => {
@@ -132,10 +153,12 @@ export default function Home() {
           />
            <div className="w-full flex items-center justify-center">
             {image ? (
-              maskedImage ? (
+              isLoading ? (
+                <div>Processing...</div>
+              ) : maskedImage ? (
                  <img src={maskedImage} alt="Monochrome Masked Face" className="border border-border rounded-md shadow-sm" />
               ) : (
-                <div>Processing...</div>
+                <div>Face detection failed.</div>
               )
             ) : (
               <div>Please upload an image.</div>
