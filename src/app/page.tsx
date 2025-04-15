@@ -5,28 +5,81 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
-import {monochromeMask} from '@/ai/flows/monochrome-mask-flow';
+import * as faceapi from 'face-api.js';
 
 const skinToneGrey = "#D3D3D3";
 
 export default function Home() {
   const [image, setImage] = useState<string | null>(null);
   const [bwImage, setBwImage] = useState<string | null>(null);
-  const [maskedImage, setMaskedImage] = useState<string | null>(null);
   const [brushSize, setBrushSize] = useState<number>(10);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onloadend = () => {
-      setImage(reader.result as string);
+    reader.onloadend = async () => {
+      const imgDataUrl = reader.result as string;
+      setImage(imgDataUrl);
+
+      // Load face-api models
+      await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+
+      // Detect face and apply mask
+      await detectAndMaskFace(imgDataUrl);
     };
     reader.readAsDataURL(file);
   };
+
+  const detectAndMaskFace = async (imgDataUrl: string) => {
+    const img = new Image();
+    img.src = imgDataUrl;
+    img.onload = async () => {
+      imageRef.current = img;
+      convertToBlackAndWhite(img);
+
+      const canvas = canvasRef.current;
+      if (!canvas || !img) return;
+
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        console.error("Could not get canvas context");
+        return;
+      }
+
+      ctx.drawImage(img, 0, 0);
+      convertToBlackAndWhiteCanvas(canvas, img);
+
+      // Use face-api.js to detect the face
+      const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions());
+      if (!detection) {
+        alert('No face detected');
+        return;
+      }
+
+      // Get face landmarks
+      const landmarks = await faceapi.detectFaceLandmarks(canvas, new faceapi.TinyFaceDetectorOptions());
+      if (!landmarks) {
+        alert('No face landmarks detected');
+        return;
+      }
+
+      const box = detection.box;
+
+      // Draw a gray rectangle over the detected face
+      ctx.fillStyle = skinToneGrey;
+      ctx.fillRect(box.x, box.y, box.width, box.height);
+      setMaskedImage(canvas.toDataURL('image/png'));
+    };
+  };
+
 
   useEffect(() => {
     if (!image) return;
@@ -164,12 +217,6 @@ export default function Home() {
     document.body.removeChild(a);
   };
 
-  const handleMonochromeMask = async () => {
-    if (!image) return;
-    const result = await monochromeMask({photoUrl: image});
-    setMaskedImage(result.maskUrl);
-  };
-
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-background text-foreground">
       <Card className="w-full max-w-2xl bg-card text-card-foreground shadow-md rounded-lg">
@@ -215,9 +262,6 @@ export default function Home() {
               Download Image
             </Button>
           </div>
-          <Button onClick={handleMonochromeMask} disabled={!image} className="bg-teal-500 text-teal-50 hover:bg-teal-700">
-            Apply Monochrome Mask
-          </Button>
           {maskedImage && (
             <img src={maskedImage} alt="Monochrome Masked Face" className="border border-border rounded-md shadow-sm" />
           )}
