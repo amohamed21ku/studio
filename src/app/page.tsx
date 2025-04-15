@@ -20,24 +20,23 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
   const ctx = canvas.getContext('2d')!
   ctx.drawImage(image, 0, 0)
 
-  // Convert image to grayscale
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
   const data = imageData.data
+
+  // Grayscale
   for (let i = 0; i < data.length; i += 4) {
     const avg = (data[i] + data[i + 1] + data[i + 2]) / 3
     data[i] = data[i + 1] = data[i + 2] = avg
   }
   ctx.putImageData(imageData, 0, 0)
 
+  // Face detection and scratch masking (same as before)
   const detection = await faceapi
     .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions())
     .withFaceLandmarks()
-
   if (!detection) throw new Error('No face detected')
 
   const lm = detection.landmarks
-
-  // Sample average grayscale tone from the cheeks
   const cheekPoints = [lm.positions[3], lm.positions[13]]
   let total = 0
   for (const p of cheekPoints) {
@@ -47,14 +46,11 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
     total += data[idx]
   }
   const baseTone = Math.round(total / cheekPoints.length)
-
-  // Define full face region using jaw and lifted brows
   const jaw = lm.getJawOutline()
   const leftBrow = lm.getLeftEyeBrow().map(p => ({ x: p.x, y: p.y - 60 }))
   const rightBrow = lm.getRightEyeBrow().map(p => ({ x: p.x, y: p.y - 60 }))
   const faceRegion = [...leftBrow, ...rightBrow.reverse(), ...jaw.reverse()]
 
-  // Fill the face region with scratchy grey (completely masking facial features)
   ctx.save()
   ctx.beginPath()
   ctx.moveTo(faceRegion[0].x, faceRegion[0].y)
@@ -62,14 +58,43 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
   ctx.closePath()
   ctx.clip()
 
-  // Create a color based on the skin tone with some random variation for a scratchy effect
-  const scratch = baseTone + Math.floor(Math.random() * 14 - 7);
-  ctx.fillStyle = `rgb(${scratch}, ${scratch}, ${scratch})`;
-
-  // Fill the entire clipped region
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const scratch = baseTone + Math.floor(Math.random() * 14 - 7)
+      ctx.fillStyle = `rgb(${scratch},${scratch},${scratch})`
+      if ((x + y) % 3 === 0) ctx.fillRect(x, y, 1, 1)
+    }
+  }
 
   ctx.restore()
+
+  // 🌟 Apply vintage (sepia + noise + vignette)
+  const vintageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const vdata = vintageData.data
+  for (let i = 0; i < vdata.length; i += 4) {
+    const r = vdata[i], g = vdata[i + 1], b = vdata[i + 2]
+    vdata[i]     = Math.min(255, r * 0.393 + g * 0.769 + b * 0.189) // red
+    vdata[i + 1] = Math.min(255, r * 0.349 + g * 0.686 + b * 0.168) // green
+    vdata[i + 2] = Math.min(255, r * 0.272 + g * 0.534 + b * 0.131) // blue
+
+    // Add light noise
+    const noise = (Math.random() - 0.5) * 20
+    vdata[i] += noise
+    vdata[i + 1] += noise
+    vdata[i + 2] += noise
+  }
+  ctx.putImageData(vintageData, 0, 0)
+
+  // Optional: vignette overlay
+  const gradient = ctx.createRadialGradient(
+    canvas.width / 2, canvas.height / 2, canvas.width * 0.2,
+    canvas.width / 2, canvas.height / 2, canvas.width * 0.6
+  )
+  gradient.addColorStop(0, 'rgba(0,0,0,0)')
+  gradient.addColorStop(1, 'rgba(0,0,0,0.3)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
   return canvas
 }
 
