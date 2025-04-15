@@ -20,6 +20,15 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
   const ctx = canvas.getContext('2d')!
   ctx.drawImage(image, 0, 0)
 
+  // Convert image to grayscale
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const data = imageData.data
+  for (let i = 0; i < data.length; i += 4) {
+    const avg = (data[i] + data[i + 1] + data[i + 2]) / 3
+    data[i] = data[i + 1] = data[i + 2] = avg
+  }
+  ctx.putImageData(imageData, 0, 0)
+
   const detection = await faceapi
     .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions())
     .withFaceLandmarks()
@@ -27,9 +36,9 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
   if (!detection) throw new Error('No face detected')
 
   const lm = detection.landmarks
-  const grey = 'rgb(160,160,160)'
+  const grey = 'rgb(150,150,150)'
 
-  // Helper to draw a region
+  // Helper to draw a filled region
   const fillRegion = (points: faceapi.Point[]) => {
     ctx.beginPath()
     ctx.moveTo(points[0].x, points[0].y)
@@ -39,25 +48,13 @@ export async function applyGreyFaceMask(image: HTMLImageElement): Promise<HTMLCa
     ctx.fill()
   }
 
-  // Cover left and right eyes
-  fillRegion(lm.getLeftEye())
-  fillRegion(lm.getRightEye())
+  // Combine jaw, cheeks and brow to approximate full face mask
+  const jaw = lm.getJawOutline()
+  const leftBrow = lm.getLeftEyeBrow().map(p => ({ x: p.x, y: p.y - 40 }))
+  const rightBrow = lm.getRightEyeBrow().map(p => ({ x: p.x, y: p.y - 40 }))
 
-  // Cover nose
-  fillRegion(lm.getNose())
-
-  // Cover mouth
-  fillRegion(lm.getMouth())
-
-  // Cover forehead (approximate from eyebrows + offset)
-  const leftBrow = lm.getLeftEyeBrow()
-  const rightBrow = lm.getRightEyeBrow()
-
-  const foreheadPoints: faceapi.Point[] = [
-    ...leftBrow.map(p => ({ x: p.x, y: p.y - 40 })),
-    ...rightBrow.reverse().map(p => ({ x: p.x, y: p.y - 40 }))
-  ]
-  fillRegion(foreheadPoints)
+  const fullFacePoints = [...leftBrow, ...rightBrow.reverse(), ...jaw.reverse()]
+  fillRegion(fullFacePoints)
 
   return canvas
 }
@@ -114,7 +111,7 @@ export default function Home() {
       };
       image.onerror = () => {
         console.error("Failed to load image");
-        alert('Failed to load image.');
+        alert('Failed toload image.');
         setIsLoading(false);
       };
     };
