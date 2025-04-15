@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
+import {monochromeMask} from '@/ai/flows/monochrome-mask-flow';
 
 const skinToneGrey = "#D3D3D3";
 
 export default function Home() {
   const [image, setImage] = useState<string | null>(null);
   const [bwImage, setBwImage] = useState<string | null>(null);
+  const [maskedImage, setMaskedImage] = useState<string | null>(null);
   const [brushSize, setBrushSize] = useState<number>(10);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
@@ -162,6 +164,12 @@ export default function Home() {
     document.body.removeChild(a);
   };
 
+  const handleMonochromeMask = async () => {
+    if (!image) return;
+    const result = await monochromeMask({photoUrl: image});
+    setMaskedImage(result.maskUrl);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-background text-foreground">
       <Card className="w-full max-w-2xl bg-card text-card-foreground shadow-md rounded-lg">
@@ -203,10 +211,16 @@ export default function Home() {
                 className="w-32"
               />
             </div>
-            <Button onClick={handleDownload} disabled={!bwImage} className="bg-teal-500 text-teal-50 hover:bg-teal-700">
+            <Button onClick={handleDownload} disabled={!bwImage} className="bg-teal-500 text-teal-50 text-teal-50 hover:bg-teal-700">
               Download Image
             </Button>
           </div>
+          <Button onClick={handleMonochromeMask} disabled={!image} className="bg-teal-500 text-teal-50 hover:bg-teal-700">
+            Apply Monochrome Mask
+          </Button>
+          {maskedImage && (
+            <img src={maskedImage} alt="Monochrome Masked Face" className="border border-border rounded-md shadow-sm" />
+          )}
         </CardContent>
       </Card>
     </div>
