@@ -27,8 +27,14 @@ export default function Home() {
       setImage(imgDataUrl);
 
       // Load face-api models
-      await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
-      await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+      try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+        await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
+      } catch (error) {
+        console.error("Failed to load face-api models:", error);
+        alert('Failed to load face detection models. Please check the console for details.');
+        return;
+      }
 
       // Detect face and apply mask
       await detectAndMaskFace(imgDataUrl);
@@ -37,195 +43,72 @@ export default function Home() {
   };
 
   const detectAndMaskFace = async (imgDataUrl: string) => {
-    const img = new Image();
-    img.src = imgDataUrl;
-    img.onload = async () => {
-      imageRef.current = img;
-      convertToBlackAndWhite(img);
+    const image = new Image();
+    image.src = imgDataUrl;
 
-      const canvas = canvasRef.current;
-      if (!canvas || !img) return;
+    image.onload = async () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(image, 0, 0);
 
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
+      // Convert the image to black and white
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
 
-      if (!ctx) {
-        console.error("Could not get canvas context");
-        return;
+      for (let i = 0; i < data.length; i += 4) {
+        const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        data[i] = avg;
+        data[i + 1] = avg;
+        data[i + 2] = avg;
       }
 
-      ctx.drawImage(img, 0, 0);
-      convertToBlackAndWhiteCanvas(canvas, img);
+      ctx.putImageData(imageData, 0, 0);
 
-      // Use face-api.js to detect the face
-      const detection = await faceapi.detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions());
-      if (!detection) {
-        alert('No face detected');
-        setMaskedImage(null); // Clear the masked image if no face is detected
-        return;
+      try {
+        const detection = await faceapi
+          .detectSingleFace(image, new faceapi.TinyFaceDetectorOptions())
+          .withFaceLandmarks();
+
+        if (!detection) throw new Error("No face detected");
+
+        // ✅ Get all landmark points
+        const points = detection.landmarks.positions;
+
+        // ✅ Draw gray mask over full face (rough polygon)
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) {
+          ctx.lineTo(points[i].x, points[i].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "rgb(160,160,160)";
+        ctx.fill();
+
+        setMaskedImage(canvas.toDataURL('image/png'));
+      } catch (error: any) {
+        console.error("Face detection or masking failed:", error);
+        alert(`Face detection or masking failed: ${error.message}`);
+        setMaskedImage(null);
       }
-
-      // Get face landmarks
-      const landmarks = await faceapi.detectFaceLandmarks(canvas, new faceapi.TinyFaceDetectorOptions());
-      if (!landmarks) {
-        alert('No face landmarks detected');
-        setMaskedImage(null); // Clear the masked image if no landmarks are detected
-        return;
-      }
-
-      // Get face landmarks positions
-      const points = landmarks.landmarks.positions;
-
-      // Draw a gray polygon over the detected face
-      ctx.fillStyle = skinToneGrey;
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y); // Move to the first point
-
-      // Iterate through the landmark points and draw lines
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
-      }
-
-      ctx.closePath(); // Close the polygon
-      ctx.fill();
-
-      setMaskedImage(canvas.toDataURL('image/png'));
-    };
-  };
-
-
-  useEffect(() => {
-    if (!image) return;
-
-    const img = new Image();
-    img.src = image;
-    img.onload = () => {
-      imageRef.current = img;
-      convertToBlackAndWhite(img);
     };
 
-  }, [image]);
-
-  const convertToBlackAndWhite = (img: HTMLImageElement) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = img.width;
-    canvas.height = img.height;
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      console.error("Could not get canvas context");
-      return;
-    }
-
-    ctx.drawImage(img, 0, 0);
-
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      data[i] = avg;
-      data[i + 1] = avg;
-      data[i + 2] = avg;
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-    setBwImage(canvas.toDataURL('image/png'));
-  };
-
-
-  useEffect(() => {
-    if (!bwImage) return;
-
-    const canvas = canvasRef.current;
-    const img = imageRef.current;
-
-    if (!canvas || !img) return;
-
-    canvas.width = img.width;
-    canvas.height = img.height;
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      console.error("Could not get canvas context");
-      return;
-    }
-
-    ctx.drawImage(img, 0, 0);
-    convertToBlackAndWhiteCanvas(canvas, img);
-
-    let drawing = false;
-
-    const startDraw = (e: MouseEvent) => {
-      drawing = true;
-      draw(e);
+    image.onerror = () => {
+      console.error("Failed to load image");
+      alert('Failed to load image.');
     };
-
-    const stopDraw = () => {
-      drawing = false;
-      ctx.beginPath();
-    };
-
-    const draw = (e: MouseEvent) => {
-      if (!drawing) return;
-
-      const x = e.offsetX;
-      const y = e.offsetY;
-      ctx.lineWidth = brushSize;
-      ctx.lineCap = "round";
-      ctx.strokeStyle = skinToneGrey;
-
-      ctx.lineTo(x, y);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-    };
-
-    canvas.addEventListener("mousedown", startDraw);
-    canvas.addEventListener("mouseup", stopDraw);
-    canvas.addEventListener("mouseout", stopDraw);
-    canvas.addEventListener("mousemove", draw);
-
-    return () => {
-      canvas.removeEventListener("mousedown", startDraw);
-      canvas.removeEventListener("mouseup", stopDraw);
-      canvas.removeEventListener("mouseout", stopDraw);
-      canvas.removeEventListener("mousemove", draw);
-    };
-  }, [bwImage, brushSize]);
-
-  const convertToBlackAndWhiteCanvas = (canvas: HTMLCanvasElement, img: HTMLImageElement) => {
-    const ctx = canvas.getContext('2d');
-
-    if (!ctx) {
-      console.error("Could not get canvas context");
-      return;
-    }
-
-    ctx.drawImage(img, 0, 0);
-
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
-
-    for (let i = 0; i < data.length; i += 4) {
-      const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-      data[i] = avg;
-      data[i + 1] = avg;
-      data[i + 2] = avg;
-    }
-
-    ctx.putImageData(imageData, 0, 0);
   };
 
   const handleDownload = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!maskedImage) {
+      alert("No masked image available to download.");
+      return;
+    }
 
-    const dataURL = canvas.toDataURL('image/png');
     const a = document.createElement('a');
-    a.href = dataURL;
-    a.download = 'monochrome_mask.png';
+    a.href = maskedImage;
+    a.download = 'masked_face.png';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -248,37 +131,22 @@ export default function Home() {
             className="w-full text-sm"
           />
            <div className="w-full flex items-center justify-center">
-            {image && bwImage ? (
-              <canvas ref={canvasRef} className="border border-border rounded-md shadow-sm" />
-            ) : (
-              image ? (
-                <div>Loading...</div>
+            {image ? (
+              maskedImage ? (
+                 <img src={maskedImage} alt="Monochrome Masked Face" className="border border-border rounded-md shadow-sm" />
               ) : (
-                <div>Please upload an image.</div>
+                <div>Processing...</div>
               )
+            ) : (
+              <div>Please upload an image.</div>
             )}
           </div>
 
           <div className="w-full flex flex-col sm:flex-row items-center justify-between space-y-2 sm:space-y-0 sm:space-x-4">
-            <div className="flex items-center space-x-2">
-              <label htmlFor="brushSize" className="text-sm font-medium">Brush Size:</label>
-              <Slider
-                id="brushSize"
-                min={5}
-                max={50}
-                step={1}
-                defaultValue={[brushSize]}
-                onValueChange={(value) => setBrushSize(value[0])}
-                className="w-32"
-              />
-            </div>
-            <Button onClick={handleDownload} disabled={!bwImage} className="bg-teal-500 text-teal-50 text-teal-50 hover:bg-teal-700">
+            <Button onClick={handleDownload} disabled={!maskedImage} className="bg-teal-500 text-teal-50 text-teal-50 hover:bg-teal-700">
               Download Image
             </Button>
           </div>
-          {maskedImage && (
-            <img src={maskedImage} alt="Monochrome Masked Face" className="border border-border rounded-md shadow-sm" />
-          )}
         </CardContent>
       </Card>
     </div>
